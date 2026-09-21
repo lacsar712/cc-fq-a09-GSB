@@ -42,9 +42,23 @@ export async function listSamples() {
   return data
 }
 
-export async function listJobs() {
-  const { data } = await api.get('/jobs')
+export async function listJobs(tag) {
+  const { data } = await api.get('/jobs', { params: tag ? { tag } : {} })
   return data
+}
+
+export async function listTags() {
+  const { data } = await api.get('/tags')
+  return data
+}
+
+export async function addJobTag(jobId, name) {
+  const { data } = await api.put(`/jobs/${jobId}/tags`, { name })
+  return data
+}
+
+export async function removeJobTag(jobId, name) {
+  await api.delete(`/jobs/${jobId}/tags/${encodeURIComponent(name)}`)
 }
 
 export async function getJob(id) {

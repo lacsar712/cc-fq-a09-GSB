@@ -14,6 +14,25 @@
       <div v-if="job.error_message" class="q-mt-sm">失败原因：{{ job.error_message }}</div>
     </q-banner>
 
+    <q-card v-if="job" flat bordered class="q-mb-md">
+      <q-card-section class="q-pa-md">
+        <div class="row items-center">
+          <div class="text-subtitle2 q-mr-md">分类标记</div>
+          <JobTags
+            :tags="job.tags || []"
+            :job-id="job.id"
+            :readonly="auth.role !== 'bioops'"
+            @changed="load"
+          />
+        </div>
+        <div class="text-caption text-grey-7 q-mt-sm">
+          <q-icon name="info" size="14px" />
+          标记落库在 <code>job_tags</code> 表（一行 = 作业 + 标记 + 挂载人）；仅运维可增删，审计员只读。
+          到「历史」页点标记即可在服务端按该标记收缩。
+        </div>
+      </q-card-section>
+    </q-card>
+
     <div class="text-subtitle1 q-mb-sm">Actor 阶段时间线</div>
     <q-timeline color="primary" class="q-mb-lg">
       <q-timeline-entry
@@ -69,9 +88,12 @@ import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { useQuasar } from 'quasar'
 import { getJob, getJobStages } from '../api/client'
+import { useAuthStore } from '../stores/auth'
+import JobTags from '../components/JobTags.vue'
 
 const route = useRoute()
 const $q = useQuasar()
+const auth = useAuthStore()
 const loading = ref(false)
 const job = ref(null)
 const stages = ref([])

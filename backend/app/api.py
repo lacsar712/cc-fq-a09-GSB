@@ -1,9 +1,10 @@
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy import distinct
+from sqlalchemy.orm import Session, joinedload, selectinload
 
 from app.auth import authenticate_user, create_access_token, get_current_user, require_bioops
 from app.database import SessionLocal, get_db
-from app.models import Job, JobStage, Sample
+from app.models import Job, JobStage, JobTag, Sample
 from app.pipeline.runner import create_job_stages, run_pipeline_sync
 from app.schemas import (
     HealthOut,
@@ -13,7 +14,10 @@ from app.schemas import (
     LoginRequest,
     SampleOut,
     StageOut,
+    TagCreate,
+    TagOut,
     TokenResponse,
+    normalize_tag_name,
 )
 
 
@@ -89,7 +93,7 @@ def create_job(
 
     job = (
         db.query(Job)
-        .options(joinedload(Job.stages))
+        .options(joinedload(Job.stages), joinedload(Job.tags))
         .filter(Job.id == job.id)
         .first()
     )
@@ -97,15 +101,27 @@ def create_job(
 
 
 @router.get("/jobs", response_model=list[JobListItem])
-def list_jobs(_user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
-    return db.query(Job).order_by(Job.id.desc()).all()
+def list_jobs(
+    tag: str | None = None,
+    _user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """作业历史。带 tag 查询参数时在服务端按单标记收缩（精确、大小写不敏感）。"""
+    query = db.query(Job).options(selectinload(Job.tags))
+    if tag is not None and tag.strip():
+        try:
+            tag_name = normalize_tag_name(tag)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        query = query.join(JobTag, JobTag.job_id == Job.id).filter(JobTag.name == tag_name)
+    return query.order_by(Job.id.desc()).all()
 
 
 @router.get("/jobs/{job_id}", response_model=JobOut)
 def get_job(job_id: int, _user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     job = (
         db.query(Job)
-        .options(joinedload(Job.stages))
+        .options(joinedload(Job.stages), joinedload(Job.tags))
         .filter(Job.id == job_id)
         .first()
     )
@@ -127,3 +143,72 @@ def get_job_stages(
         .order_by(JobStage.stage_order)
         .all()
     )
+
+
+def _get_job_or_404(db: Session, job_id: int) -> Job:
+    job = db.query(Job).filter(Job.id == job_id).first()
+    if not job:
+        raise HTTPException(status_code=404, detail="作业不存在")
+    return job
+
+
+@router.get("/tags", response_model=list[str])
+def list_tags(_user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """全库已使用的标记名（去重、字典序），供历史页标记操作区展示。"""
+    rows = db.query(distinct(JobTag.name)).order_by(JobTag.name).all()
+    return [r[0] for r in rows]
+
+
+@router.put("/jobs/{job_id}/tags", response_model=TagOut)
+def add_job_tag(
+    job_id: int,
+    body: TagCreate,
+    user: dict = Depends(require_bioops),
+    db: Session = Depends(get_db),
+):
+    """运维给作业挂标记（一作业可多标记，重复挂同名幂等）。审计员 403。"""
+    _get_job_or_404(db, job_id)
+    try:
+        name = body.normalized_name()
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    existing = (
+        db.query(JobTag)
+        .filter(JobTag.job_id == job_id, JobTag.name == name)
+        .first()
+    )
+    if existing:
+        return existing
+
+    tag = JobTag(job_id=job_id, name=name, created_by=user["username"])
+    db.add(tag)
+    db.commit()
+    db.refresh(tag)
+    return tag
+
+
+@router.delete("/jobs/{job_id}/tags/{name}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_job_tag(
+    job_id: int,
+    name: str,
+    user: dict = Depends(require_bioops),
+    db: Session = Depends(get_db),
+):
+    """运维摘除作业上的某个标记。审计员 403。"""
+    _get_job_or_404(db, job_id)
+    try:
+        tag_name = normalize_tag_name(name)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    tag = (
+        db.query(JobTag)
+        .filter(JobTag.job_id == job_id, JobTag.name == tag_name)
+        .first()
+    )
+    if not tag:
+        raise HTTPException(status_code=404, detail="该作业未挂此标记")
+    db.delete(tag)
+    db.commit()
+    return None

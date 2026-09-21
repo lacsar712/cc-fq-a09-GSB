@@ -1,7 +1,20 @@
 from datetime import datetime
+import re
 from typing import Any
 
 from pydantic import BaseModel, Field
+
+
+TAG_NAME_PATTERN = re.compile(r"^[a-z0-9][a-z0-9\-_]{0,63}$")
+
+
+def normalize_tag_name(value: str) -> str:
+    name = (value or "").strip().lower()
+    if not name:
+        raise ValueError("标记名不能为空")
+    if not TAG_NAME_PATTERN.match(name):
+        raise ValueError("标记名仅允许小写字母、数字、- 与 _，且以字母或数字开头（≤64 字符）")
+    return name
 
 
 class LoginRequest(BaseModel):
@@ -45,6 +58,22 @@ class StageOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class TagOut(BaseModel):
+    id: int
+    name: str
+    created_by: str
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class TagCreate(BaseModel):
+    name: str
+
+    def normalized_name(self) -> str:
+        return normalize_tag_name(self.name)
+
+
 class JobOut(BaseModel):
     id: int
     sample_id: int | None
@@ -56,6 +85,7 @@ class JobOut(BaseModel):
     created_at: datetime
     finished_at: datetime | None
     stages: list[StageOut] = []
+    tags: list[TagOut] = []
 
     model_config = {"from_attributes": True}
 
@@ -70,6 +100,7 @@ class JobListItem(BaseModel):
     error_message: str | None
     created_at: datetime
     finished_at: datetime | None
+    tags: list[TagOut] = []
 
     model_config = {"from_attributes": True}
 
