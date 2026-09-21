@@ -14,6 +14,26 @@
       <div v-if="job.error_message" class="q-mt-sm">失败原因：{{ job.error_message }}</div>
     </q-banner>
 
+    <div v-if="job" class="row items-center q-gutter-xs q-mb-md">
+      <span class="text-subtitle2">标记：</span>
+      <template v-if="job.tags && job.tags.length">
+        <q-chip v-for="t in job.tags" :key="t" dense color="blue-1" text-color="primary">
+          {{ t }}
+        </q-chip>
+      </template>
+      <span v-else class="text-grey-6">未挂标记</span>
+      <q-btn
+        v-if="auth.role === 'bioops'"
+        flat
+        dense
+        color="secondary"
+        icon="sell"
+        label="编辑标记"
+        @click="openTagEditor"
+      />
+      <span v-else class="text-caption text-grey-6">（审计员只读）</span>
+    </div>
+
     <div class="text-subtitle1 q-mb-sm">Actor 阶段时间线</div>
     <q-timeline color="primary" class="q-mb-lg">
       <q-timeline-entry
@@ -61,6 +81,13 @@
       </div>
     </div>
     <div v-else class="text-grey-6">尚无指标（作业未成功完成或仍在运行）</div>
+
+    <tag-editor-dialog
+      v-model="tagEditorOpen"
+      :job="job"
+      :existing-tags="tagOptions"
+      @saved="onTagsSaved"
+    />
   </q-page>
 </template>
 
@@ -68,13 +95,18 @@
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { useQuasar } from 'quasar'
-import { getJob, getJobStages } from '../api/client'
+import { getJob, getJobStages, listTags } from '../api/client'
+import { useAuthStore } from '../stores/auth'
+import TagEditorDialog from '../components/TagEditorDialog.vue'
 
 const route = useRoute()
 const $q = useQuasar()
+const auth = useAuthStore()
 const loading = ref(false)
 const job = ref(null)
 const stages = ref([])
+const tagOptions = ref([])
+const tagEditorOpen = ref(false)
 let timer = null
 
 const metrics = computed(() => job.value?.metrics || null)
@@ -156,6 +188,20 @@ async function load() {
   } finally {
     loading.value = false
   }
+}
+
+async function openTagEditor() {
+  try {
+    tagOptions.value = await listTags()
+  } catch {
+    tagOptions.value = []
+  }
+  tagEditorOpen.value = true
+}
+
+function onTagsSaved(updatedJob) {
+  // 落库返回的就是最新作业（含标记），直接替换，无需整页刷新
+  job.value = updatedJob
 }
 
 onMounted(async () => {

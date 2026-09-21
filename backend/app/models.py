@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, Boolean, JSON, func
+from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, Boolean, JSON, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -34,6 +34,9 @@ class Job(Base):
     stages: Mapped[list["JobStage"]] = relationship(
         "JobStage", back_populates="job", cascade="all, delete-orphan", order_by="JobStage.stage_order"
     )
+    tags: Mapped[list["JobTag"]] = relationship(
+        "JobTag", back_populates="job", cascade="all, delete-orphan", order_by="JobTag.tag"
+    )
     sample: Mapped[Sample | None] = relationship("Sample")
 
 
@@ -50,3 +53,18 @@ class JobStage(Base):
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     job: Mapped[Job] = relationship("Job", back_populates="stages")
+
+
+class JobTag(Base):
+    """作业分类标记：一个作业可挂多个标记，(job_id, tag) 唯一，随作业级联删除。"""
+
+    __tablename__ = "job_tags"
+    __table_args__ = (UniqueConstraint("job_id", "tag", name="uq_job_tags_job_tag"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    job_id: Mapped[int] = mapped_column(ForeignKey("jobs.id", ondelete="CASCADE"), nullable=False)
+    tag: Mapped[str] = mapped_column(String(32), nullable=False)
+    created_by: Mapped[str] = mapped_column(String(64), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    job: Mapped[Job] = relationship("Job", back_populates="tags")

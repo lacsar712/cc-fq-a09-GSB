@@ -42,8 +42,19 @@ export async function listSamples() {
   return data
 }
 
-export async function listJobs() {
-  const { data } = await api.get('/jobs')
+export async function listJobs(tag) {
+  // 按单标记收缩历史：参数打到服务端，由后端 SQL 过滤
+  const { data } = await api.get('/jobs', { params: tag ? { tag } : {} })
+  return data
+}
+
+export async function listTags() {
+  const { data } = await api.get('/tags')
+  return data
+}
+
+export async function setJobTags(jobId, tags) {
+  const { data } = await api.put(`/jobs/${jobId}/tags`, { tags })
   return data
 }
 

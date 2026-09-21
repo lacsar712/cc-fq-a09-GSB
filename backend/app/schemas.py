@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class LoginRequest(BaseModel):
@@ -45,7 +45,18 @@ class StageOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
-class JobOut(BaseModel):
+class _TagsOut(BaseModel):
+    """把 ORM 的 JobTag 列表拍平成标记名字符串列表。"""
+
+    tags: list[str] = Field(default_factory=list)
+
+    @field_validator("tags", mode="before")
+    @classmethod
+    def _tags_as_names(cls, v: Any) -> list[str]:
+        return [getattr(t, "tag", t) for t in (v or [])]
+
+
+class JobOut(_TagsOut):
     id: int
     sample_id: int | None
     sample_name: str
@@ -60,7 +71,7 @@ class JobOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
-class JobListItem(BaseModel):
+class JobListItem(_TagsOut):
     id: int
     sample_id: int | None
     sample_name: str
@@ -72,6 +83,17 @@ class JobListItem(BaseModel):
     finished_at: datetime | None
 
     model_config = {"from_attributes": True}
+
+
+class JobTagsUpdate(BaseModel):
+    """整体替换一个作业的标记集合（最多 8 个）。"""
+
+    tags: list[str] = Field(default_factory=list, max_length=8)
+
+
+class TagOut(BaseModel):
+    name: str
+    job_count: int
 
 
 class HealthOut(BaseModel):
